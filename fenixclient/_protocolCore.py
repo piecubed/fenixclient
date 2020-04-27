@@ -127,6 +127,6 @@ class ProtocolHelper:
         try:
             typ = self.types[packet['type']]
         except KeyError:
-            return None
+            raise TypeError
 
         return typ(packet)

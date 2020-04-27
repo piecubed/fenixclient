@@ -1,6 +1,6 @@
 # © (Copyright) 2020 by piesquared.
 import websockets
-from typing import Dict, Any, Callable, Iterator, Union
+from typing import Dict, Any, Callable, Iterator, Union, List
 import json
 import asyncio
 from fenixclient import _protocolCore
@@ -146,11 +146,14 @@ class Client:
     __lastID = 0
     __websocket: websockets.WebSocketClientProtocol
     __responses: Dict[int, Union[_BaseProtocol, None]]
+    __listeners: Dict[str, List[Callable[[_BaseProtocol], Any]]]
 
     async def __connect(self) -> None:
         self.__websocket = await websockets.connect('wss://bloblet.com:3300')
 
     async def __parseMessage(self, message: Dict[str, Any]) -> None:
+        if message['type'] == 'message':
+            await self.__informClient(message)
         try:
             self.__responses[message['id']] = _incomingMessages.types[message['type']](message)
         except KeyError:
@@ -159,6 +162,34 @@ class Client:
             self.__responses[message['id']] = None
             self.__queue[message['id']].release()
 
+
+    async def __informClient(self, message: Dict[str, Any]) -> None:
+        protocol = await self.__incomingMessagesCaster(message['type'], **message)
+
+        for i in self.__listeners[message['type']]:
+            i(protocol)
+
+
+    def addListener(self, *names: str) -> Callable[[Callable[[_BaseProtocol], None]], Callable[[_BaseProtocol], None]]:
+        """
+        A decorator to add packet types.
+        ```
+        @client.addListener('packetName')
+        def handlePacketName(message: BaseProtocol):
+            ...
+        ```
+        """
+
+        def wrapper(func: Callable[[_BaseProtocol], None]) -> Callable[[_BaseProtocol], None]:
+            for name in names:
+                if name in self.__listeners.keys():
+                    self.__listeners[name].append(func)
+                else:
+                    self.__listeners[name] = [func]
+
+            return func
+
+        return wrapper
 
     async def __rawSend(self, payload: _BaseProtocol) -> None:
         await self.__websocket.send(payload.dumps())
@@ -198,15 +229,15 @@ class Client:
 
         Raises
         ------
-        InvalidType
-            RaisedInvalidType if ``type`` is not in the _outgoingMessages var.
+        TypeError
+            Raises TypeError if ``type`` is not in the _outgoingMessages var.
         """
 
         try:
             result: _BaseProtocol = _outgoingMessages.types[type](kwargs)
             return result
         except:
-            raise InvalidType
+            raise TypeError
 
     async def __incomingMessagesCaster(self, type: str, **kwargs: Any) -> _BaseProtocol:
         """Casts into a protocol.
@@ -225,15 +256,15 @@ class Client:
 
         Raises
         ------
-        InvalidType
-            RaisedInvalidType if ``type`` is not in the _incomingMessages var.
+        TypeError
+            Raises TypeError if ``type`` is not in the _incomingMessages var.
         """
 
         try:
             result: _BaseProtocol = _incomingMessages.types[type](kwargs)
             return result
         except:
-            raise InvalidType
+            raise TypeError
 
     async def login(self, email: str, password: str) -> Union[AuthUser, None]:
         """
