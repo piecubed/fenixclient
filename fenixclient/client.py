@@ -283,7 +283,7 @@ class Client:
             If the server sends a unknown protocol (this should never happen), None is returned.
         """
 
-        login = self.__outgoingMessagesCaster('login', email=email, password=password)
+        login = await self.__outgoingMessagesCaster('login', email=email, password=password)
         response: Union[AuthUser, None] = await self.__send(login)
 
         return response
